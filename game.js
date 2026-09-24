@@ -21,6 +21,8 @@ const FLY_BOTTOM = GROUND_Y - 6;    // 아래쪽 한계 (지면 바로 위)
 const FLY_SPEED = 2.0;              // 비행 속도
 let ARENA_X = 3220;                 // 보스전 카메라 고정 위치 (스테이지마다 바뀜)
 const LEVEL_END = 4000;             // 지형·배경을 미리 깔아 두는 최대 길이
+// 공개할 스테이지 수. 트레일러용으로 1탄만 돌린다 (2탄 데이터는 그대로 두고 잠가만 둠)
+const LAST_STAGE = 1;
 
 // ===== 분대 설정 =====
 // 플레이어 총은 권총 고정. 화력은 동료 3명의 패시브와 액티브 스킬이 담당한다.
@@ -375,11 +377,97 @@ addEventListener('keydown', e => {
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
+for (const [n, fn] of [['touchstart', touchStart], ['touchmove', touchMove],
+                       ['touchend', touchEnd], ['touchcancel', touchEnd]]) {
+  cvs.addEventListener(n, fn, { passive: false });
+}
 // 창이 포커스를 잃으면 자동 일시정지 (키가 눌린 채로 남는 것도 방지)
 addEventListener('blur', () => {
   for (const k in keys) keys[k] = false;
-  if (state === 'play') state = 'pause';
+  touch.id = null; touch.on = false; touch.dx = touch.dy = 0;
+  // 휴대폰은 주소창만 건드려도 포커스가 빠져 걸핏하면 멈추므로 자동 일시정지를 걸지 않는다
+  if (state === 'play' && !isTouch) state = 'pause';
 });
+// ===== 터치 조작 (휴대폰) =====
+// 화면 아무 데나 끌면 그 방향으로 움직이고, 오른쪽 아래 버튼 세 개로 스킬을 쓴다.
+// 키보드와 같이 쓸 수 있게 keys/pressed 를 그대로 건드린다.
+const touch = { on: false, dx: 0, dy: 0, id: null, bx: 0, by: 0 };
+let isTouch = false;            // 한 번이라도 터치가 들어오면 화면에 버튼을 띄운다
+
+// 화면 좌표 → 게임 좌표(480x270)
+function toGame(e) {
+  const r = cvs.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+}
+
+// 오른쪽 아래 스킬 버튼 세 개의 위치 (그리기와 판정에 같이 씀)
+const TOUCH_BTN = 34, TOUCH_GAP = 8;
+function touchButtons() {
+  const y = H - TOUCH_BTN - 8;
+  return SQUAD_ORDER.map((type, i) => ({
+    type,
+    x: W - (3 - i) * (TOUCH_BTN + TOUCH_GAP) - 8 + TOUCH_GAP,
+    y, w: TOUCH_BTN, h: TOUCH_BTN,
+  }));
+}
+
+function touchStart(e) {
+  isTouch = true;
+  for (const t of e.changedTouches) {
+    const g = toGame(t);
+    // 스킬 버튼을 눌렀나?
+    const btn = touchButtons().find(b => g.x > b.x - 6 && g.x < b.x + b.w + 6 &&
+                                         g.y > b.y - 6 && g.y < b.y + b.h + 6);
+    if (btn) {
+      const code = BIND[SQUAD_TYPES[btn.type].key][0];
+      keys[code] = true; pressed[code] = true;
+      setTimeout(() => { keys[code] = false; }, 80);
+      continue;
+    }
+    // 그 밖의 곳은 이동(끌기) 또는 화면 넘기기
+    if (touch.id === null) {
+      touch.id = t.identifier; touch.on = true;
+      touch.bx = g.x; touch.by = g.y; touch.dx = 0; touch.dy = 0;
+      if (state === 'pause') {
+        // 휴대폰에는 P/Esc 가 없으므로 화면을 누르면 풀리게 한다 (안 그러면 갇힌다)
+        const code = BIND.pause[0];
+        keys[code] = true; pressed[code] = true;
+        setTimeout(() => { keys[code] = false; }, 80);
+      } else if (state !== 'play') {
+        keys['Enter'] = true; pressed['Enter'] = true;
+      }
+    }
+  }
+  e.preventDefault();
+}
+
+function touchMove(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== touch.id) continue;
+    const g = toGame(t);
+    touch.dx = g.x - touch.bx;
+    touch.dy = g.y - touch.by;
+    // 기준점을 따라오게 해서 손가락을 멀리 끌지 않아도 계속 움직이게 한다
+    const max = 26;
+    const d = Math.hypot(touch.dx, touch.dy);
+    if (d > max) {
+      touch.bx += (d - max) * touch.dx / d;
+      touch.by += (d - max) * touch.dy / d;
+      touch.dx = g.x - touch.bx; touch.dy = g.y - touch.by;
+    }
+  }
+  e.preventDefault();
+}
+
+function touchEnd(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== touch.id) continue;
+    touch.id = null; touch.on = false; touch.dx = touch.dy = 0;
+    keys['Enter'] = false;
+  }
+  e.preventDefault();
+}
+
 const held = a => BIND[a].some(c => keys[c]);
 const tap = a => BIND[a].some(c => pressed[c]);
 
@@ -788,8 +876,41 @@ function finishRun() {
   playSound('clear');
 }
 
+// 휴대폰에는 물리 키보드가 없으므로 보이지 않는 입력칸을 띄워 운영체제 키보드를 부른다
+let mobileInput = null;
+function openMobileKeyboard() {
+  if (mobileInput) return;
+  const el = document.createElement('input');
+  el.type = 'text';
+  el.maxLength = RANK.NAME_MAX;
+  el.autocapitalize = 'characters';
+  el.autocomplete = 'off';
+  el.setAttribute('autocorrect', 'off');
+  el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:42%;' +
+    'width:70%;max-width:340px;font-size:20px;text-align:center;letter-spacing:3px;' +
+    'padding:10px;border:2px solid #ffe066;border-radius:8px;background:#14151a;color:#fff;' +
+    'font-family:monospace;z-index:10;outline:none';
+  el.value = entryName;
+  el.addEventListener('input', () => {
+    entryName = RANK.clean(el.value);
+    el.value = entryName;
+  });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); closeMobileKeyboard(); sendScore(); }
+  });
+  document.body.appendChild(el);
+  mobileInput = el;
+  setTimeout(() => el.focus(), 60);
+}
+function closeMobileKeyboard() {
+  if (!mobileInput) return;
+  mobileInput.remove();
+  mobileInput = null;
+}
+
 // 이름을 확정하고 랭킹 서버로 보낸다 (실패해도 게임이 멈추지 않게 한다)
 function sendScore() {
+  closeMobileKeyboard();
   entryBusy = true;
   entryMsg = '기록하는 중...';
   const secs = playTime / 60;
@@ -980,6 +1101,7 @@ function update() {
   }
   // 이름 입력 화면
   if (state === 'name') {
+    if (isTouch) openMobileKeyboard();
     if (typed) {
       entryName = (entryName + typed).slice(0, RANK.NAME_MAX);
       typed = '';
@@ -1035,7 +1157,7 @@ function update() {
     playSound('clear');
   }
   if (clearTimer > 0 && --clearTimer === 0) {
-    if (stage < STAGES.length) startStage(stage + 1);     // 다음 스테이지로 이어짐
+    if (stage < LAST_STAGE) startStage(stage + 1);       // 다음 스테이지로 이어짐
     else { finishRun(); }
   }
 }
@@ -1074,13 +1196,22 @@ function updatePlayer() {
   }
 
   const L = held('left'), R = held('right'), U = held('up'), D = held('down');
-  const dir = (R ? 1 : 0) - (L ? 1 : 0);
-  const vdir = (D ? 1 : 0) - (U ? 1 : 0);
+  let dir = (R ? 1 : 0) - (L ? 1 : 0);
+  let vdir = (D ? 1 : 0) - (U ? 1 : 0);
 
   // 비행: 8방향 자유 이동 (대각선은 속도를 맞춰 줄임)
   const sp = FLY_SPEED * squadBuff.speed * (dir && vdir ? 0.75 : 1);
   p.vx = dir * sp;
   p.vy = vdir * sp;
+  // 터치로 끌고 있으면 그쪽으로 (끈 거리에 비례해 속도가 붙는다)
+  if (touch.on) {
+    const d = Math.hypot(touch.dx, touch.dy);
+    if (d > 2) {
+      const k = Math.min(1, d / 22) * FLY_SPEED * squadBuff.speed;
+      p.vx = touch.dx / d * k;
+      p.vy = touch.dy / d * k;
+    } else { p.vx = 0; p.vy = 0; }
+  }
   p.facing = 1;               // 슈팅이라 언제나 오른쪽을 본다
   p.x += p.vx;
   p.y += p.vy;
@@ -2678,7 +2809,7 @@ function drawHUD() {
     ctx.fillStyle = '#ff3b3b'; ctx.fillRect(W / 2 - 100, H - 16, 200 * boss.hp / boss.maxHp, 8);
     text('드로론', W / 2, H - 20, 9, '#fff', 'center');
   }
-  drawSkillBar();
+  if (isTouch) drawTouchPad(); else drawSkillBar();
   if (bossWarn > 0 && (frame >> 3) % 2) text('[ WARNING ]', W / 2, H / 2 + 7, 24, '#ff3b3b', 'center');
   if (msg) text(msg.text, W / 2, 70, 12, '#ffe066', 'center');
 }
@@ -2727,6 +2858,48 @@ function drawSkillBar() {
     ctx.fillRect(x + 1, by + ch - 10, cw - 2, 9);
     text(KEY_LABEL[type], x + cw / 2, by + ch - 2, 9, ready ? '#fff' : '#888', 'center');
   });
+}
+
+// 휴대폰용 스킬 버튼 세 개 (손가락으로 누를 수 있게 크게)
+function drawTouchPad() {
+  for (const b of touchButtons()) {
+    const T = SQUAD_TYPES[b.type], a = allies.find(o => o.type === b.type);
+    const ready = a && a.skillCool <= 0;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    const face = IMAGES['face_' + b.type];
+    if (face) {
+      const img = face.img;
+      ctx.save();
+      ctx.globalAlpha = !a ? 0.16 : ready ? 1 : 0.4;
+      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, b.x + 3, b.y + 3, b.w - 6, b.w - 6);
+      ctx.restore();
+    }
+    if (!a) {                                  // 아직 합류 전
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(b.x + 3, b.y + 3, b.w - 6, b.w - 6);
+      text('?', b.x + b.w / 2, b.y + b.h / 2 + 5, 15, '#666', 'center');
+    } else if (!ready) {                       // 쿨타임: 남은 초
+      const f = 1 - a.skillCool / (T.skillCool * skillCut());
+      ctx.fillStyle = 'rgba(10,10,20,0.6)';
+      ctx.fillRect(b.x + 3, b.y + 3, b.w - 6, Math.round((b.w - 6) * (1 - f)));
+      text(`${Math.ceil(a.skillCool / 60)}`, b.x + b.w / 2, b.y + b.h / 2 + 5, 14, '#fff', 'center');
+    }
+    ctx.strokeStyle = ready ? '#ffe066' : '#3a3a3a';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
+  }
+  // 끌고 있는 방향 표시
+  if (touch.on && state === 'play') {
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    ctx.strokeStyle = '#9fd4ff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(touch.bx, touch.by, 22, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#9fd4ff';
+    ctx.beginPath();
+    ctx.arc(touch.bx + touch.dx, touch.by + touch.dy, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 // 일시정지 화면: 동료별 패시브와 액티브 스킬
@@ -2888,7 +3061,8 @@ function drawNameEntry() {
       ctx.fillStyle = '#ffe066'; ctx.fillRect(x + 2, 116, cw - 4, 2);
     }
   }
-  text('A~Z 입력    Backspace 지우기    Enter 등록', W / 2, 146, 9, '#bbb', 'center');
+  text(isTouch ? '이름을 치고 확인(엔터)을 누르세요' : 'A~Z 입력    Backspace 지우기    Enter 등록',
+       W / 2, 146, 9, '#bbb', 'center');
   if (entryMsg) text(entryMsg, W / 2, 166, 9, entryBusy ? '#9fd4ff' : '#ff7a7a', 'center');
   else if (!RANK.online()) text('랭킹 서버가 설정되지 않아 이 브라우저에만 기록됩니다', W / 2, 166, 8, '#888', 'center');
 }
