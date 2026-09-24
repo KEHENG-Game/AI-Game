@@ -7,4 +7,4 @@
 //   4) 나온 주소(.../exec)를 아래 따옴표 안에 붙여넣기
 //
 // 비워 두면 랭킹이 이 브라우저에만 저장됩니다 (혼자 테스트할 때 그대로 두세요).
-window.RANK_URL = '';
+window.RANK_URL = 'https://script.google.com/macros/s/AKfycbwUdMljtgvcwm63K2PUJBa1SLJWDu1GHYQNGfShijzULl1-0s6DfS0Lqp_QNxP1SjWIYQ/exec';
