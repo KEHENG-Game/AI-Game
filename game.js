@@ -1,6 +1,6 @@
 'use strict';
 // =====================================================
-// LAST VETERAN - 횡스크롤 런앤건 프로토타입 (도형 그래픽)
+// Pina's Journey - 횡스크롤 슈팅 (주인공: 피나)
 // =====================================================
 
 // ===== 기본 설정 =====
@@ -16,6 +16,7 @@ const SCROLL = 0.55;                // 화면이 저절로 오른쪽으로 밀�
 // 카메라는 플레이어가 앞서면 빨라지고 보스전에서는 아예 멈추는데,
 // 그때마다 배경까지 같이 멈추면 "날고 있다"는 느낌이 끊겼다.
 const BG_SPEED = 3.2;               // 배경이 뒤로 흐르는 속도 (캐릭터 움직임과 무관)
+const BG_DIM = 0.42;                // 배경을 덮는 어두운 막의 진하기 (클수록 어두움)
 const FLY_TOP = 12;                 // 날 수 있는 위쪽 한계
 const FLY_BOTTOM = GROUND_Y - 6;    // 아래쪽 한계 (지면 바로 위)
 const FLY_SPEED = 2.0;              // 비행 속도
@@ -505,7 +506,7 @@ const one = (x, t, y, o = {}) =>
 function coaster(x, t, n, o = {}) {
   const gap = o.gap ?? 22, y = o.y ?? 70, amp = o.amp ?? 38;
   for (let i = 0; i < n; i++)
-    SPAWNS.push({ x: x + i * gap, t, y, amp, path: 'coaster', speed: o.speed ?? 1.9, fire: o.fire,
+    SPAWNS.push({ x: x + i * gap, t, y, amp, path: 'coaster', speed: o.speed ?? 1.9, fire: o.fire, hp: o.hp,
                   carrier: o.carry !== false && i === n - 1 });
 }
 // 줄줄이 한 줄로 흘러오는 편대. 맨 뒤(가장 나중에 들어오는) 기체가 파워업 아이템을 가진다
@@ -578,8 +579,9 @@ const STAGES = [
       // --- WAVE 1: 위아래 롤러코스터 두 줄 → 바로 중간보스 ---
       wave(300, 'WAVE 1');
       // 열차처럼 바짝 붙어 같은 궤도를 타고 들어온다 (gap 을 좁히고 위상을 맞춤)
-      coaster(320, 'm4', 6, { y: 62, amp: 34, speed: 2.2, gap: 9 });    // 아이템 1 → 홍련
-      coaster(500, 'm4', 6, { y: 150, amp: 34, speed: 2.2, gap: 9 });   // 아이템 2 → 라푼젤
+      // hp: 2 = 두 대만 맞으면 터진다 (초반은 잡는 맛부터 붙이고 본다)
+      coaster(320, 'm4', 6, { y: 62, amp: 34, speed: 2.2, gap: 9, hp: 2 });    // 아이템 1 → 홍련
+      coaster(500, 'm4', 6, { y: 150, amp: 34, speed: 2.2, gap: 9, hp: 2 });   // 아이템 2 → 라푼젤
       one(660, 'm6', 80);                                           // 중간보스 → 아이템 3개 (파워 3~5)
       // --- WAVE 2 (35기): 수는 적어도 피하기 쉬운 탄이 자주 오도록 fire 0.8 (발사 20% 증가) ---
       wave(700, 'WAVE 2');
@@ -1171,9 +1173,14 @@ function spawnEnemies() {
     const s = SPAWNS[spawnIdx++];
     if (s.t === 'label') continue;               // 페이즈 구분만 하고 화면에는 띄우지 않는다
     const e = makeEnemy(s.t, s.x, s.y, s.a);
-    if (s.carrier) { e.carrier = true; e.hp = e.maxHp = Math.round(e.maxHp * 1.6); }   // 아이템 보유 기체는 조금 단단
+    // 아이템 보유 기체는 조금 단단하게. 단 hp 를 지정한 편대는 지정값 그대로 둔다
+    if (s.carrier) {
+      e.carrier = true;
+      if (!s.hp) e.hp = e.maxHp = Math.round(e.maxHp * 1.6);
+    }
     if (s.fast) e.fast = true;                   // 성큼성큼 달려드는 지상 무리
     if (s.fire) e.rate *= s.fire;                // 편대별 발사 빈도 (작을수록 자주 쏨)
+    if (s.hp) e.hp = e.maxHp = s.hp;             // 편대별 체력 고정 (구간 배수 무시)
     if (s.hold) { e.hold = true; e.lane = e.baseY; e.laneAlt = s.laneAlt; }   // 자리를 잡고 버틴다
     if (s.path) {                                // 편대 비행 정보
       e.path = s.path;
@@ -2925,7 +2932,7 @@ function drawPause() {
   bar('효과음', sfxVolume, 32, '[ / ]');
   if (muted) text('음소거 (M)', W - 24, 44, 8, '#888', 'right');
 
-  text('분대 — 레벨이 오르면 패시브와 스킬이 함께 강해집니다', 14, 52, 9, '#ffe066');
+  text('피나의 분대 — 레벨이 오르면 패시브와 스킬이 함께 강해집니다', 14, 52, 9, '#ffe066');
   let y = 70;
   for (const type of SQUAD_ORDER) {
     const T = SQUAD_TYPES[type], mine = allies.find(a => a.type === type);
@@ -2976,6 +2983,9 @@ function draw() {
   ctx.save();
   ctx.translate(Math.round(ox), Math.round(oy));
   drawBackground();
+  // 배경이 밝으면 적과 탄이 묻혀서 잘 안 보인다. 배경만 한 겹 어둡게 깐다
+  ctx.fillStyle = `rgba(6,4,10,${BG_DIM})`;
+  ctx.fillRect(0, 0, W, H);
   if (stageInfo && stageInfo.tint) {        // 스테이지 색감 (2탄은 밤)
     ctx.fillStyle = stageInfo.tint;
     ctx.fillRect(0, 0, W, H);
@@ -2998,7 +3008,7 @@ function draw() {
   ctx.restore();
 
   if (state === 'title') {
-    overlay('LAST VETERAN', '로봇휴먼 · 분대 횡스크롤 슈팅', '#ffe066');
+    overlay("Pina's Journey", '피나와 분대의 횡스크롤 슈팅', '#ffe066');
     text('비행: ← ↑ → ↓ / W A S D (8방향 자유 이동)     사격: 자동', W / 2, 152, 10, '#fff', 'center');
     text('파워업 1~3단계는 탄 수 증가, 그 이후는 스킬 피해·쿨타임 강화', W / 2, 168, 10, '#fff', 'center');
     text('스킬: Z  홍련     X  라푼젤     C  스노우화이트     일시정지: P / Esc', W / 2, 184, 10, '#fff', 'center');
