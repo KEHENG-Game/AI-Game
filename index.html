@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>LAST VETERAN - 프로토타입</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; background: #000; }
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="540"></canvas>
+<script>
+  // 개발 중 캐시 방지: 열 때마다 새 주소로 불러와 수정한 코드·그림이 바로 반영되게 함
+  window.ASSET_V = '1';
+  document.write('<script src="config.js?v=' + window.ASSET_V + '"><\/script>');
+  document.write('<script src="leaderboard.js?v=' + window.ASSET_V + '"><\/script>');
+  document.write('<script src="assets.js?v=' + window.ASSET_V + '"><\/script>');
+  document.write('<script src="game.js?v=' + window.ASSET_V + '"><\/script>');
+</script>
+</body>
+</html>
