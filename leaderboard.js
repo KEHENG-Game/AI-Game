@@ -17,7 +17,7 @@ const RANK = (() => {
 
   // ----- JSONP: <script> 를 하나 꽂아 두고 콜백으로 결과를 받는다 -----
   let seq = 0;
-  function jsonp(params, timeout = 6000) {
+  function jsonp(params, timeout = 20000) {
     return new Promise((resolve, reject) => {
       const cb = '__rank_cb_' + (++seq);
       const tag = document.createElement('script');
@@ -61,8 +61,16 @@ const RANK = (() => {
     async submit(name, score, secs) {
       const n = clean(name) || 'PLAYER';
       if (!online()) return { rows: localAdd(n, score, secs), offline: true };
-      const r = await jsonp({ action: 'submit', name: n, score: Math.round(score), secs: Math.round(secs) });
-      return { rows: r.rows || [], rank: r.rank, offline: false };
+      try {
+        const r = await jsonp({ action: 'submit', name: n, score: Math.round(score), secs: Math.round(secs) });
+        return { rows: r.rows || [], rank: r.rank, offline: false };
+      } catch (e) {
+        // 응답만 늦었을 뿐 기록은 저장됐을 수 있다. 목록을 다시 받아 확인한다
+        const t = await this.top();
+        const saved = (t.rows || []).some(r2 => r2.name === n && r2.score === Math.round(score));
+        if (saved) return { rows: t.rows, rank: 0, offline: false, slow: true };
+        throw e;
+      }
     },
 
     // 상위 목록만 조회

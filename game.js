@@ -433,7 +433,8 @@ function touchStart(e) {
         const code = BIND.pause[0];
         keys[code] = true; pressed[code] = true;
         setTimeout(() => { keys[code] = false; }, 80);
-      } else if (state !== 'play') {
+      } else if (state !== 'play' && state !== 'name') {
+        // 이름 입력 화면은 예외 — 누르면 빈 이름으로 등록돼 버린다
         keys['Enter'] = true; pressed['Enter'] = true;
       }
     }
@@ -1111,7 +1112,10 @@ function update() {
       typedBack = false;
       if (entryName) { entryName = entryName.slice(0, -1); playSound('select'); }
     }
-    if (!entryBusy && tap('start')) sendScore();
+    if (!entryBusy && tap('start')) {
+      if (entryName) sendScore();
+      else entryMsg = '이름을 한 글자 이상 입력해 주세요';
+    }
     return;
   }
   // 순위표 화면
